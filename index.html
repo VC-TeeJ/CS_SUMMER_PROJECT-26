@@ -143,12 +143,21 @@ hands.setOptions({
 });
 hands.onResults(onResults);
 
+let processing = false;
+
 const camera = new Camera(videoElement, {
   onFrame: async () => {
-    await hands.send({image: videoElement});
+    if (processing) return;
+    processing = true;
+    try {
+      await hands.send({image: videoElement});
+    } catch (e) {
+      console.warn("Frame skipped:", e);
+    }
+    processing = false;
   },
-  width: 640,
-  height: 480
+  width: 320,
+  height: 240
 });
 camera.start();
 </script>
