@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Gesture Catch Game</title>
+<style>
+  body { margin: 0; background: #111; display: flex; justify-content: center; }
+  #container { position: relative; }
+  video { display: none; }
+  canvas { border: 2px solid white; }
+</style>
+</head>
+<body>
+
+<div id="container">
+  <video id="video" width="640" height="480" autoplay playsinline></video>
+  <canvas id="canvas" width="640" height="480"></canvas>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script>
+const videoElement = document.getElementById('video');
+const canvasElement = document.getElementById('canvas');
+const ctx = canvasElement.getContext('2d');
+
+let score = 0;
+let gameState = "START";
+let startTime = null;
+const GAME_DURATION = 30; // seconds
+
+const width = 640, height = 480;
+
+function makeObject() {
+  return {
+    x: Math.random() * (width - 100) + 50,
+    y: Math.random() * -200,
+    speed: Math.random() * 5 + 4
+  };
+}
+
+let objects = Array.from({length: 5}, makeObject);
+
+let cx = 0, cy = 0, handDetected = false;
+
+function onResults(results) {
+  ctx.save();
+  ctx.clearRect(0, 0, width, height);
+  ctx.drawImage(results.image, 0, 0, width, height);
+
+  handDetected = false;
+  if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+    const landmarks = results.multiHandLandmarks[0];
+    const indexTip = landmarks[8];
+    // mirror x since we'll flip the canvas view
+    cx = (1 - indexTip.x) * width;
+    cy = indexTip.y * height;
+    handDetected = true;
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, 15, 0, 2 * Math.PI);
+    ctx.fillStyle = "lime";
+    ctx.fill();
+  }
+
+  drawGame();
+  ctx.restore();
+}
+
+function drawGame() {
+  if (gameState === "START") {
+    ctx.fillStyle = "white";
+    ctx.font = "30px Arial";
+    ctx.fillText("Press SPACE to start", 80, 240);
+
+  } else if (gameState === "PLAYING") {
+    const elapsed = (Date.now() - startTime) / 1000;
+    const remaining = Math.max(0, Math.ceil(GAME_DURATION - elapsed));
+    const speedBonus = Math.floor(elapsed / 5);
+
+    if (elapsed > GAME_DURATION) {
+      gameState = "GAME_OVER";
+    }
+
+    objects.forEach(obj => {
+      obj.y += obj.speed;
+
+      const dist = Math.sqrt((cx - obj.x) ** 2 + (cy - obj.y) ** 2);
+
+      if (handDetected && dist < 30) {
+        score += 1;
+        obj.y = Math.random() * -100;
+        obj.x = Math.random() * (width - 100) + 50;
+        obj.speed = Math.random() * 5 + 4 + speedBonus;
+      }
+
+      if (obj.y > height) {
+        obj.y = Math.random() * -100;
+        obj.x = Math.random() * (width - 100) + 50;
+        obj.speed = Math.random() * 5 + 4 + speedBonus;
+      }
+
+      ctx.beginPath();
+      ctx.arc(obj.x, obj.y, 15, 0, 2 * Math.PI);
+      ctx.fillStyle = "red";
+      ctx.fill();
+    });
+
+    ctx.fillStyle = "white";
+    ctx.font = "24px Arial";
+    ctx.fillText(`Score: ${score}`, 20, 40);
+    ctx.fillText(`Time: ${remaining}`, 20, 75);
+
+  } else if (gameState === "GAME_OVER") {
+    ctx.fillStyle = "white";
+    ctx.font = "28px Arial";
+    ctx.fillText(`Game Over! Score: ${score}`, 60, 240);
+    ctx.font = "20px Arial";
+    ctx.fillText("Press R to restart", 100, 280);
+  }
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.code === "Space" && gameState === "START") {
+    gameState = "PLAYING";
+    startTime = Date.now();
+  }
+  if (e.key.toLowerCase() === "r" && gameState === "GAME_OVER") {
+    gameState = "START";
+    score = 0;
+    startTime = null;
+    objects = Array.from({length: 5}, makeObject);
+  }
+});
+
+const hands = new Hands({locateFile: (file) => {
+  return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+}});
+hands.setOptions({
+  maxNumHands: 1,
+  minDetectionConfidence: 0.7,
+  minTrackingConfidence: 0.5
+});
+hands.onResults(onResults);
+
+const camera = new Camera(videoElement, {
+  onFrame: async () => {
+    await hands.send({image: videoElement});
+  },
+  width: 640,
+  height: 480
+});
+camera.start();
+</script>
+</body>
+</html>
