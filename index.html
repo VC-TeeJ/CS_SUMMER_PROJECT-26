@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <title>Catch Game</title>
 <style>
-  body { margin: 0; background: #111; display: flex; justify-content: center; }
+  body { margin: 0; background: #111; display: flex; justify-content: center; font-family: Arial, sans-serif; }
   canvas { border: 2px solid white; }
 </style>
 </head>
@@ -17,101 +17,143 @@ const canvasElement = document.getElementById('canvas');
 const ctx = canvasElement.getContext('2d');
 
 let score = 0;
-let gameState = "START";
+let highScore = parseInt(localStorage.getItem('catchGameHighScore')) || 0;
+let gameState = "MENU"; // MENU, PLAYING, PAUSED, GAME_OVER
 let startTime = null;
-const GAME_DURATION = 30;
+let pausedAt = null;
+let totalPausedTime = 0;
+let GAME_DURATION = 30;
 
 const width = 640, height = 480;
 
-// Player position, controlled by arrow keys
 let px = width / 2, py = height / 2;
 const PLAYER_SPEED = 6;
 const keys = {};
 
 function makeObject() {
+  const isPower = Math.random() < 0.12; // ~12% chance of a powerup ball
   return {
     x: Math.random() * (width - 100) + 50,
     y: Math.random() * -200,
-    speed: Math.random() * 5 + 4
+    speed: Math.random() * 5 + 4,
+    type: isPower ? "power" : "normal"
   };
 }
 
 let objects = Array.from({length: 5}, makeObject);
 
-function update() {
-  if (gameState === "PLAYING") {
-    // Move player based on held keys
-    if (keys["ArrowLeft"]) px -= PLAYER_SPEED;
-    if (keys["ArrowRight"]) px += PLAYER_SPEED;
-    if (keys["ArrowUp"]) py -= PLAYER_SPEED;
-    if (keys["ArrowDown"]) py += PLAYER_SPEED;
+function startGame() {
+  gameState = "PLAYING";
+  score = 0;
+  startTime = Date.now();
+  totalPausedTime = 0;
+  GAME_DURATION = 30;
+  px = width / 2;
+  py = height / 2;
+  objects = Array.from({length: 5}, makeObject);
+}
 
-    px = Math.max(15, Math.min(width - 15, px));
-    py = Math.max(15, Math.min(height - 15, py));
-  }
+function update() {
+  if (gameState !== "PLAYING") return;
+
+  if (keys["ArrowLeft"]) px -= PLAYER_SPEED;
+  if (keys["ArrowRight"]) px += PLAYER_SPEED;
+  if (keys["ArrowUp"]) py -= PLAYER_SPEED;
+  if (keys["ArrowDown"]) py += PLAYER_SPEED;
+
+  px = Math.max(15, Math.min(width - 15, px));
+  py = Math.max(15, Math.min(height - 15, py));
 }
 
 function draw() {
   ctx.clearRect(0, 0, width, height);
 
-  if (gameState === "START") {
+  if (gameState === "MENU") {
     ctx.fillStyle = "white";
-    ctx.font = "30px Arial";
-    ctx.fillText("Press SPACE to start", 80, 240);
-    ctx.font = "18px Arial";
-    ctx.fillText("Use arrow keys to move", 100, 280);
+    ctx.font = "32px Arial";
+    ctx.fillText("Catch Game", 220, 160);
+    ctx.font = "22px Arial";
+    ctx.fillText("Press SPACE to start", 190, 220);
+    ctx.font = "16px Arial";
+    ctx.fillText("Arrow keys to move | P to pause | Gold ball = bonus", 110, 260);
+    ctx.font = "20px Arial";
+    ctx.fillStyle = "gold";
+    ctx.fillText(`High Score: ${highScore}`, 240, 320);
 
-  } else if (gameState === "PLAYING") {
-    const elapsed = (Date.now() - startTime) / 1000;
+  } else if (gameState === "PLAYING" || gameState === "PAUSED") {
+    const elapsed = ((gameState === "PAUSED" ? pausedAt : Date.now()) - startTime - totalPausedTime) / 1000;
     const remaining = Math.max(0, Math.ceil(GAME_DURATION - elapsed));
     const speedBonus = Math.floor(elapsed / 5);
 
-    if (elapsed > GAME_DURATION) {
+    if (gameState === "PLAYING" && elapsed > GAME_DURATION) {
       gameState = "GAME_OVER";
+      if (score > highScore) {
+        highScore = score;
+        localStorage.setItem('catchGameHighScore', highScore);
+      }
     }
 
-    // Draw player
+    // Player
     ctx.beginPath();
     ctx.arc(px, py, 15, 0, 2 * Math.PI);
     ctx.fillStyle = "lime";
     ctx.fill();
 
-    // Update and draw falling objects
     objects.forEach(obj => {
-      obj.y += obj.speed;
+      if (gameState === "PLAYING") {
+        obj.y += obj.speed;
 
-      const dist = Math.sqrt((px - obj.x) ** 2 + (py - obj.y) ** 2);
+        const dist = Math.sqrt((px - obj.x) ** 2 + (py - obj.y) ** 2);
 
-      if (dist < 30) {
-        score += 1;
-        obj.y = Math.random() * -100;
-        obj.x = Math.random() * (width - 100) + 50;
-        obj.speed = Math.random() * 5 + 4 + speedBonus;
-      }
+        if (dist < 30) {
+          if (obj.type === "power") {
+            score += 5;
+            GAME_DURATION += 3; // bonus: extra time too
+          } else {
+            score += 1;
+          }
+          Object.assign(obj, makeObject(), { y: Math.random() * -100 });
+        }
 
-      if (obj.y > height) {
-        obj.y = Math.random() * -100;
-        obj.x = Math.random() * (width - 100) + 50;
-        obj.speed = Math.random() * 5 + 4 + speedBonus;
+        if (obj.y > height) {
+          Object.assign(obj, makeObject(), { y: Math.random() * -100 });
+        }
       }
 
       ctx.beginPath();
       ctx.arc(obj.x, obj.y, 15, 0, 2 * Math.PI);
-      ctx.fillStyle = "red";
+      ctx.fillStyle = obj.type === "power" ? "gold" : "red";
       ctx.fill();
     });
 
     ctx.fillStyle = "white";
-    ctx.font = "24px Arial";
-    ctx.fillText(`Score: ${score}`, 20, 40);
-    ctx.fillText(`Time: ${remaining}`, 20, 75);
+    ctx.font = "22px Arial";
+    ctx.fillText(`Score: ${score}`, 20, 35);
+    ctx.fillText(`Time: ${remaining}`, 20, 65);
+    ctx.font = "16px Arial";
+    ctx.fillStyle = "gold";
+    ctx.fillText(`Best: ${highScore}`, 20, 90);
+
+    if (gameState === "PAUSED") {
+      ctx.fillStyle = "rgba(0,0,0,0.6)";
+      ctx.fillRect(0, 0, width, height);
+      ctx.fillStyle = "white";
+      ctx.font = "28px Arial";
+      ctx.fillText("Paused", 270, 230);
+      ctx.font = "18px Arial";
+      ctx.fillText("Press P to resume", 240, 270);
+    }
 
   } else if (gameState === "GAME_OVER") {
     ctx.fillStyle = "white";
     ctx.font = "28px Arial";
-    ctx.fillText(`Game Over! Score: ${score}`, 60, 240);
-    ctx.font = "20px Arial";
-    ctx.fillText("Press R to restart", 100, 280);
+    ctx.fillText(`Game Over! Score: ${score}`, 150, 200);
+    ctx.fillStyle = "gold";
+    ctx.font = "22px Arial";
+    ctx.fillText(`High Score: ${highScore}`, 210, 240);
+    ctx.fillStyle = "white";
+    ctx.font = "18px Arial";
+    ctx.fillText("Press R to play again", 210, 280);
   }
 }
 
@@ -124,17 +166,20 @@ function loop() {
 document.addEventListener('keydown', (e) => {
   keys[e.key] = true;
 
-  if (e.code === "Space" && gameState === "START") {
-    gameState = "PLAYING";
-    startTime = Date.now();
-    px = width / 2;
-    py = height / 2;
+  if (e.code === "Space" && gameState === "MENU") {
+    startGame();
+  }
+  if (e.key.toLowerCase() === "p") {
+    if (gameState === "PLAYING") {
+      gameState = "PAUSED";
+      pausedAt = Date.now();
+    } else if (gameState === "PAUSED") {
+      totalPausedTime += Date.now() - pausedAt;
+      gameState = "PLAYING";
+    }
   }
   if (e.key.toLowerCase() === "r" && gameState === "GAME_OVER") {
-    gameState = "START";
-    score = 0;
-    startTime = null;
-    objects = Array.from({length: 5}, makeObject);
+    gameState = "MENU";
   }
 });
 
@@ -142,7 +187,7 @@ document.addEventListener('keyup', (e) => {
   keys[e.key] = false;
 });
 
-draw(); // show start screen immediately
+draw();
 loop();
 </script>
 </body>
