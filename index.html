@@ -18,39 +18,70 @@ const ctx = canvasElement.getContext('2d');
 
 let score = 0;
 let highScore = parseInt(localStorage.getItem('catchGameHighScore')) || 0;
-let gameState = "MENU"; // MENU, PLAYING, PAUSED, GAME_OVER
+let gameState = "MENU";
 let startTime = null;
 let pausedAt = null;
 let totalPausedTime = 0;
 let GAME_DURATION = 30;
+let lives = 3;
+let combo = 0;
+let comboTimer = 0;
 
 const width = 640, height = 480;
 
 let px = width / 2, py = height / 2;
 const PLAYER_SPEED = 6;
 const keys = {};
+let particles = [];
 
 function makeObject() {
-  const isPower = Math.random() < 0.12; // ~12% chance of a powerup ball
+  const roll = Math.random();
+  let type = "normal";
+  if (roll < 0.12) type = "power";
+  else if (roll < 0.24) type = "hazard";
   return {
     x: Math.random() * (width - 100) + 50,
     y: Math.random() * -200,
     speed: Math.random() * 5 + 4,
-    type: isPower ? "power" : "normal"
+    type
   };
 }
 
 let objects = Array.from({length: 5}, makeObject);
 
+function spawnParticles(x, y, color) {
+  for (let i = 0; i < 8; i++) {
+    particles.push({
+      x, y,
+      vx: (Math.random() - 0.5) * 6,
+      vy: (Math.random() - 0.5) * 6,
+      life: 20,
+      color
+    });
+  }
+}
+
 function startGame() {
   gameState = "PLAYING";
   score = 0;
+  lives = 3;
+  combo = 0;
+  comboTimer = 0;
   startTime = Date.now();
   totalPausedTime = 0;
   GAME_DURATION = 30;
   px = width / 2;
   py = height / 2;
   objects = Array.from({length: 5}, makeObject);
+  particles = [];
+}
+
+function endGame() {
+  gameState = "GAME_OVER";
+  if (score > highScore) {
+    highScore = score;
+    localStorage.setItem('catchGameHighScore', highScore);
+  }
 }
 
 function update() {
@@ -63,6 +94,14 @@ function update() {
 
   px = Math.max(15, Math.min(width - 15, px));
   py = Math.max(15, Math.min(height - 15, py));
+
+  if (comboTimer > 0) {
+    comboTimer--;
+    if (comboTimer === 0) combo = 0;
+  }
+
+  particles.forEach(p => { p.x += p.vx; p.y += p.vy; p.life--; });
+  particles = particles.filter(p => p.life > 0);
 }
 
 function draw() {
@@ -71,14 +110,18 @@ function draw() {
   if (gameState === "MENU") {
     ctx.fillStyle = "white";
     ctx.font = "32px Arial";
-    ctx.fillText("Catch Game", 220, 160);
-    ctx.font = "22px Arial";
-    ctx.fillText("Press SPACE to start", 190, 220);
-    ctx.font = "16px Arial";
-    ctx.fillText("Arrow keys to move | P to pause | Gold ball = bonus", 110, 260);
+    ctx.fillText("Catch Game", 220, 140);
     ctx.font = "20px Arial";
+    ctx.fillText("Press SPACE to start", 190, 190);
+    ctx.font = "15px Arial";
+    ctx.fillText("Arrows to move | P to pause", 190, 225);
     ctx.fillStyle = "gold";
-    ctx.fillText(`High Score: ${highScore}`, 240, 320);
+    ctx.fillText("Gold = +5 score & time", 200, 250);
+    ctx.fillStyle = "purple";
+    ctx.fillText("Purple = lose a life, avoid it!", 190, 275);
+    ctx.fillStyle = "gold";
+    ctx.font = "20px Arial";
+    ctx.fillText(`High Score: ${highScore}`, 240, 330);
 
   } else if (gameState === "PLAYING" || gameState === "PAUSED") {
     const elapsed = ((gameState === "PAUSED" ? pausedAt : Date.now()) - startTime - totalPausedTime) / 1000;
@@ -86,14 +129,9 @@ function draw() {
     const speedBonus = Math.floor(elapsed / 5);
 
     if (gameState === "PLAYING" && elapsed > GAME_DURATION) {
-      gameState = "GAME_OVER";
-      if (score > highScore) {
-        highScore = score;
-        localStorage.setItem('catchGameHighScore', highScore);
-      }
+      endGame();
     }
 
-    // Player
     ctx.beginPath();
     ctx.arc(px, py, 15, 0, 2 * Math.PI);
     ctx.fillStyle = "lime";
@@ -102,15 +140,24 @@ function draw() {
     objects.forEach(obj => {
       if (gameState === "PLAYING") {
         obj.y += obj.speed;
-
         const dist = Math.sqrt((px - obj.x) ** 2 + (py - obj.y) ** 2);
 
         if (dist < 30) {
           if (obj.type === "power") {
             score += 5;
-            GAME_DURATION += 3; // bonus: extra time too
+            GAME_DURATION += 3;
+            spawnParticles(obj.x, obj.y, "gold");
+          } else if (obj.type === "hazard") {
+            lives -= 1;
+            combo = 0;
+            comboTimer = 0;
+            spawnParticles(obj.x, obj.y, "purple");
+            if (lives <= 0) endGame();
           } else {
-            score += 1;
+            combo++;
+            comboTimer = 90; // ~1.5s at 60fps to keep combo alive
+            score += 1 + Math.floor(combo / 5); // small bonus every 5-combo
+            spawnParticles(obj.x, obj.y, "red");
           }
           Object.assign(obj, makeObject(), { y: Math.random() * -100 });
         }
@@ -122,17 +169,31 @@ function draw() {
 
       ctx.beginPath();
       ctx.arc(obj.x, obj.y, 15, 0, 2 * Math.PI);
-      ctx.fillStyle = obj.type === "power" ? "gold" : "red";
+      ctx.fillStyle = obj.type === "power" ? "gold" : obj.type === "hazard" ? "purple" : "red";
       ctx.fill();
     });
 
+    particles.forEach(p => {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 3, 0, 2 * Math.PI);
+      ctx.fillStyle = p.color;
+      ctx.globalAlpha = p.life / 20;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    });
+
     ctx.fillStyle = "white";
-    ctx.font = "22px Arial";
-    ctx.fillText(`Score: ${score}`, 20, 35);
-    ctx.fillText(`Time: ${remaining}`, 20, 65);
-    ctx.font = "16px Arial";
+    ctx.font = "20px Arial";
+    ctx.fillText(`Score: ${score}`, 20, 30);
+    ctx.fillText(`Time: ${remaining}`, 20, 55);
+    ctx.fillText(`Lives: ${"♥".repeat(lives)}`, 20, 80);
+    if (combo > 1) {
+      ctx.fillStyle = "orange";
+      ctx.fillText(`Combo x${combo}`, 20, 105);
+    }
     ctx.fillStyle = "gold";
-    ctx.fillText(`Best: ${highScore}`, 20, 90);
+    ctx.font = "14px Arial";
+    ctx.fillText(`Best: ${highScore}`, 20, 128);
 
     if (gameState === "PAUSED") {
       ctx.fillStyle = "rgba(0,0,0,0.6)";
@@ -165,27 +226,15 @@ function loop() {
 
 document.addEventListener('keydown', (e) => {
   keys[e.key] = true;
-
-  if (e.code === "Space" && gameState === "MENU") {
-    startGame();
-  }
+  if (e.code === "Space" && gameState === "MENU") startGame();
   if (e.key.toLowerCase() === "p") {
-    if (gameState === "PLAYING") {
-      gameState = "PAUSED";
-      pausedAt = Date.now();
-    } else if (gameState === "PAUSED") {
-      totalPausedTime += Date.now() - pausedAt;
-      gameState = "PLAYING";
-    }
+    if (gameState === "PLAYING") { gameState = "PAUSED"; pausedAt = Date.now(); }
+    else if (gameState === "PAUSED") { totalPausedTime += Date.now() - pausedAt; gameState = "PLAYING"; }
   }
-  if (e.key.toLowerCase() === "r" && gameState === "GAME_OVER") {
-    gameState = "MENU";
-  }
+  if (e.key.toLowerCase() === "r" && gameState === "GAME_OVER") gameState = "MENU";
 });
 
-document.addEventListener('keyup', (e) => {
-  keys[e.key] = false;
-});
+document.addEventListener('keyup', (e) => { keys[e.key] = false; });
 
 draw();
 loop();
