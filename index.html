@@ -87,10 +87,10 @@ function endGame() {
 function update() {
   if (gameState !== "PLAYING") return;
 
-  if (keys["ArrowLeft"]) px -= PLAYER_SPEED;
-  if (keys["ArrowRight"]) px += PLAYER_SPEED;
-  if (keys["ArrowUp"]) py -= PLAYER_SPEED;
-  if (keys["ArrowDown"]) py += PLAYER_SPEED;
+if (keys["a"] || keys["A"]) px -= PLAYER_SPEED;
+if (keys["d"] || keys["D"]) px += PLAYER_SPEED;
+if (keys["w"] || keys["W"]) py -= PLAYER_SPEED;
+if (keys["s"] || keys["S"]) py += PLAYER_SPEED;
 
   px = Math.max(15, Math.min(width - 15, px));
   py = Math.max(15, Math.min(height - 15, py));
